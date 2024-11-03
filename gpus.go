@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"strings"
 	"strconv"
+
 )
 
 type GPUsMetrics struct {
@@ -35,18 +36,25 @@ func GPUsGetMetrics() *GPUsMetrics {
 	return ParseGPUsMetrics()
 }
 
-func ParseAllocatedGPUs() float64 {
-	var num_gpus = 0.0
 
-	args := []string{"-a", "-X", "--format=Allocgres", "--state=RUNNING", "--noheader", "--parsable2"}
+func ParseAllocatedGPUs() float64 {
+	var num_gpus float64
+
+	args := []string{"-a", "-X", "--format=AllocTRES", "--state=RUNNING", "--noheader", "--parsable2"}
 	output := string(Execute("sacct", args))
 	if len(output) > 0 {
 		for _, line := range strings.Split(output, "\n") {
 			if len(line) > 0 {
-				line = strings.Trim(line, "\"")
-				descriptor := strings.TrimPrefix(line, "gpu:")
-				job_gpus, _ := strconv.ParseFloat(descriptor, 64)
-				num_gpus += job_gpus
+				fields := strings.Split(line, ",")
+				for _, field := range fields {
+					if strings.HasPrefix(field, "gres/gpu=") {
+						descriptor := strings.TrimPrefix(field, "gres/gpu=")
+						job_gpus, err := strconv.ParseFloat(descriptor, 64)
+						if err == nil {
+							num_gpus += job_gpus
+						}
+					}
+				}
 			}
 		}
 	}
@@ -55,24 +63,34 @@ func ParseAllocatedGPUs() float64 {
 }
 
 func ParseTotalGPUs() float64 {
-	var num_gpus = 0.0
+	var total_gpus float64
 
-	args := []string{"-h", "-o \"%n %G\""}
+	args := []string{"-N", "-h", "--Format=gres", "--noheader"}
 	output := string(Execute("sinfo", args))
-	if len(output) > 0 {
-		for _, line := range strings.Split(output, "\n") {
-			if len(line) > 0 {
-				line = strings.Trim(line, "\"")
-				descriptor := strings.Fields(line)[1]
-				descriptor = strings.TrimPrefix(descriptor, "gpu:")
-				descriptor = strings.Split(descriptor, "(")[0]
-				node_gpus, _ :=  strconv.ParseFloat(descriptor, 64)
-				num_gpus += node_gpus
+	
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if len(line) > 0 {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 3 {
+				gpuCountStr := parts[2]
+				// If there are parentheses, remove them and anything after them
+				if i := strings.Index(gpuCountStr, "("); i >= 0 {
+					gpuCountStr = gpuCountStr[:i]
+				}
+				// If there are spaces, remove them and anything after them
+				if i := strings.Index(gpuCountStr, " "); i >= 0 {
+					gpuCountStr = gpuCountStr[:i]
+				}
+				gpuCount, err := strconv.ParseFloat(gpuCountStr, 64)
+				if err == nil {
+					total_gpus += gpuCount
+				}
 			}
 		}
 	}
 
-	return num_gpus
+	return total_gpus
 }
 
 func ParseGPUsMetrics() *GPUsMetrics {
